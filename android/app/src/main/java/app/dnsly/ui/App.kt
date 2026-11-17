@@ -28,8 +28,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,9 +49,11 @@ import androidx.compose.ui.unit.dp
 import app.dnsly.core.EngineDriver
 import app.dnsly.core.EngineState
 import app.dnsly.data.ServerPrefs
+import app.dnsly.data.history.HistoryStore
 import app.dnsly.net.privateDnsStrict
 import app.dnsly.service.DnslyVpnService
 import app.dnsly.service.VpnStatus
+import kotlinx.coroutines.delay
 
 enum class Screen(val title: String, val parent: Screen? = null) {
     Dashboard("Dashboard"),
@@ -76,7 +80,20 @@ fun App() {
     val strict by remember { privateDnsStrict(ctx.applicationContext) }.collectAsState(false)
     val engineState by EngineDriver.state.collectAsState()
     val automationOn by EngineDriver.enabled.collectAsState()
+    val autoReactivate by EngineDriver.autoReactivate.collectAsState()
     val inside by EngineDriver.insideArea.collectAsState()
+    val geo by EngineDriver.geo.collectAsState()
+    val probeStats by EngineDriver.probeStats.collectAsState()
+    HistoryStore.ensure(ctx)
+    val history by remember { HistoryStore.events() }.collectAsState(emptyList())
+    // 1 s ticker: the dashboard countdowns ("hace X s" / "en X s") are wall-clock derived.
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
     val (state, subtitle) = when (engineState) {
         EngineState.DnsActive -> DnsState.DnsActive to DnsState.DnsActive.subtitle
         EngineState.CheckingServer -> DnsState.CheckingServer to "Probando el servidor DNS"
@@ -87,9 +104,27 @@ fun App() {
             DnsState.VpnError to ((vpn as? VpnStatus.Error)?.message ?: DnsState.VpnError.subtitle)
         EngineState.Disabled -> DnsState.Disabled to "La automatización está apagada"
     }
-    val dash = Demo.dashboard(state, subtitle, strict, server, inside)
+    val dash = dashboard(
+        state = state,
+        subtitle = subtitle,
+        privateDnsStrict = strict,
+        insideArea = inside,
+        areaName = if (geo.geofenceEnabled && geo.hasLocation) "Área configurada" else "Sin área",
+        server = server,
+        rttMs = probeStats.rttMs,
+        nextCheckAtMs = probeStats.nextCheckAtMs,
+        lastCheckAtMs = probeStats.lastCheckAtMs,
+        nowMs = nowMs,
+    )
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == Activity.RESULT_OK) EngineDriver.setEnabled(true)
+    }
+    val enableAutomation = {
+        if (!server.isConfigured) screen = Screen.Server
+        else {
+            val prepare = VpnService.prepare(ctx)
+            if (prepare == null) EngineDriver.setEnabled(true) else consent.launch(prepare)
+        }
     }
 
     BackHandler(screen != Screen.Dashboard) { screen = screen.parent ?: Screen.Dashboard }
@@ -113,7 +148,7 @@ fun App() {
         ) {
             when (screen) {
                 Screen.Dashboard -> DashboardScreen(dash, onOpenServer = { screen = Screen.Server })
-                Screen.History -> HistoryScreen(Demo.history)
+                Screen.History -> HistoryScreen(history)
                 Screen.Location -> LocationScreen()
                 Screen.Settings -> SettingsScreen(
                     onServer = { screen = Screen.Server },
@@ -126,7 +161,12 @@ fun App() {
                     EngineDriver.reloadConfig(ctx)
                     screen = Screen.Settings
                 }
-                Screen.Automation -> AutomationScreen()
+                Screen.Automation -> AutomationScreen(
+                    enabled = automationOn,
+                    autoReactivate = autoReactivate,
+                    onEnabled = { on -> if (on) enableAutomation() else EngineDriver.setEnabled(false) },
+                    onAutoReactivate = EngineDriver::setAutoReactivate,
+                )
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -139,11 +179,7 @@ fun App() {
                 when {
                     engineState == EngineState.VpnError -> EngineDriver.retryVpn()
                     automationOn -> EngineDriver.setEnabled(false)
-                    !server.isConfigured -> screen = Screen.Server
-                    else -> {
-                        val prepare = VpnService.prepare(ctx)
-                        if (prepare == null) EngineDriver.setEnabled(true) else consent.launch(prepare)
-                    }
+                    else -> enableAutomation()
                 }
             },
         )

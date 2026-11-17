@@ -31,6 +31,7 @@ object NativeCore {
         retryDelayMs: Long,
         backoffBaseMs: Long,
         backoffMaxMs: Long,
+        autoRecover: Boolean,
     ): Long
 
     /**

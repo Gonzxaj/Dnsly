@@ -109,6 +109,7 @@ pub extern "system" fn Java_app_dnsly_core_NativeCore_engineNew<'local>(
     retry_delay_ms: jlong,
     backoff_base_ms: jlong,
     backoff_max_ms: jlong,
+    auto_recover: jboolean,
 ) -> jlong {
     let (Ok(fail), Ok(recover)) = (
         u32::try_from(fail_threshold),
@@ -131,6 +132,7 @@ pub extern "system" fn Java_app_dnsly_core_NativeCore_engineNew<'local>(
         retry_delay_ms: retry,
         backoff_base_ms: base,
         backoff_max_ms: max,
+        auto_recover: auto_recover != 0,
     }) {
         Ok(e) => Box::into_raw(Box::new(e)) as jlong,
         Err(_) => 0,

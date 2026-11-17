@@ -9,6 +9,8 @@ import app.dnsly.data.LocationPrefs
 import app.dnsly.data.ServerConfig
 import app.dnsly.data.ServerPrefs
 import app.dnsly.data.effectiveInside
+import app.dnsly.data.history.HistoryStore
+import app.dnsly.data.history.historyForTransition
 import app.dnsly.geo.GeofenceManager
 import app.dnsly.geo.LocationAccess
 import app.dnsly.net.NetworkMonitor
@@ -20,6 +22,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /** What the UI needs to render the Ubicación screen. */
 data class GeoState(
@@ -32,6 +35,14 @@ data class GeoState(
     val insideAtMs: Long = 0,
     val fineGranted: Boolean = false,
     val backgroundGranted: Boolean = false,
+)
+
+/** Probe timing for the dashboard: epoch millis of the last run and the next scheduled one. */
+data class ProbeStats(
+    val lastCheckAtMs: Long = 0,
+    val nextCheckAtMs: Long = 0,
+    /** Exponential moving average of successful probe RTTs; null until the first success. */
+    val rttMs: Double? = null,
 )
 
 /**
@@ -82,6 +93,10 @@ object EngineDriver {
     val insideArea: StateFlow<Boolean> = _inside
     private val _geo = MutableStateFlow(GeoState())
     val geo: StateFlow<GeoState> = _geo
+    private val _probeStats = MutableStateFlow(ProbeStats())
+    val probeStats: StateFlow<ProbeStats> = _probeStats
+    private val _autoReactivate = MutableStateFlow(true)
+    val autoReactivate: StateFlow<Boolean> = _autoReactivate
 
     private val lastQueryTimeout = AtomicLong(0)
 
@@ -95,7 +110,9 @@ object EngineDriver {
         val ctx = context.applicationContext
         app = ctx
         Notifier.ensureChannels(ctx)
+        HistoryStore.ensure(ctx)
         serverConfig = ServerPrefs.load(ctx)
+        _autoReactivate.value = AutomationPrefs.autoReactivate(ctx)
         val on = AutomationPrefs.enabled(ctx)
         _enabled.value = on
 
@@ -178,6 +195,14 @@ object EngineDriver {
         refreshGeo(ctx)
     }
 
+    /** "Reactivación automática" switch: persists and rebuilds the engine with the new flag. */
+    fun setAutoReactivate(on: Boolean) {
+        val ctx = app ?: return
+        AutomationPrefs.saveAutoReactivate(ctx, on)
+        _autoReactivate.value = on
+        reloadConfig(ctx)
+    }
+
     /** ENTER/EXIT transition reported by GeofenceReceiver. */
     fun onGeofenceInside(context: Context, inside: Boolean) {
         ensure(context)
@@ -226,6 +251,7 @@ object EngineDriver {
             retryDelayMs = RETRY_DELAY_MS,
             backoffBaseMs = BACKOFF_BASE_MS,
             backoffMaxMs = BACKOFF_MAX_MS,
+            autoRecover = app?.let { AutomationPrefs.autoReactivate(it) } ?: true,
         )
     }
 
@@ -241,7 +267,7 @@ object EngineDriver {
         currentState = EngineActions.parseState(NativeCore.engineState(h))
         _state.value = currentState
         Log.d(TAG, "event=$event state=$previous->$currentState actions=$actions")
-        if (currentState != previous) onStateChanged(currentState)
+        if (currentState != previous) onStateChanged(previous, currentState)
         actions.forEach(::execute)
     }
 
@@ -250,7 +276,10 @@ object EngineDriver {
         when (action) {
             EngineAction.StartVpn -> startVpn()
             EngineAction.StopVpn -> stopVpn()
-            EngineAction.CancelProbe -> cancelProbe()
+            EngineAction.CancelProbe -> {
+                cancelProbe()
+                _probeStats.update { it.copy(nextCheckAtMs = 0) }
+            }
             is EngineAction.ScheduleProbe -> scheduleProbe(action)
         }
     }
@@ -285,6 +314,9 @@ object EngineDriver {
             action.delayMs,
             TimeUnit.MILLISECONDS,
         )
+        _probeStats.update {
+            it.copy(nextCheckAtMs = System.currentTimeMillis() + action.delayMs)
+        }
     }
 
     private fun cancelProbe() {
@@ -294,16 +326,26 @@ object EngineDriver {
 
     private fun runProbe(generation: Long) {
         val cfg = serverConfig
-        val ok = try {
-            NativeCore.probe(cfg.address, cfg.port, cfg.tcp, cfg.domain, cfg.timeoutS * 1000) is ProbeResult.Ok
+        val result = try {
+            NativeCore.probe(cfg.address, cfg.port, cfg.tcp, cfg.domain, cfg.timeoutS * 1000)
         } catch (e: Exception) {
-            false
+            ProbeResult.Failed(e.message ?: "probe failed")
         }
-        postEvent(EV_PROBE_DONE, generation, if (ok) 1 else 0)
+        _probeStats.update { s ->
+            s.copy(
+                lastCheckAtMs = System.currentTimeMillis(),
+                rttMs = when (result) {
+                    is ProbeResult.Ok -> s.rttMs?.let { it * 0.7 + result.rttMs * 0.3 } ?: result.rttMs
+                    is ProbeResult.Failed -> s.rttMs
+                },
+            )
+        }
+        postEvent(EV_PROBE_DONE, generation, if (result is ProbeResult.Ok) 1 else 0)
     }
 
-    private fun onStateChanged(now: EngineState) {
+    private fun onStateChanged(previous: EngineState, now: EngineState) {
         val ctx = app ?: return
+        historyForTransition(previous, now)?.let { HistoryStore.record(it.kind, it.detail) }
         when (now) {
             EngineState.ServerUnavailable ->
                 Notifier.postEvent(ctx, "Servidor DNS no disponible", "Dnsly usa el DNS de la red y sigue reintentando.")

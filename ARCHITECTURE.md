@@ -199,7 +199,7 @@ Dnsly/
 | 3 🟡 | VPN solo-DNS + reenviador Rust; encendido manual; detección de Private DNS estricto + aviso en el dashboard | Tests ✅ (parseo IPv4/IPv6, checksums, loop completo con TUN simulado). Falta en dispositivo: navegación OK con la VPN; logs de Pi-hole muestran el teléfono; con Private DNS estricto aparece el aviso |
 | 4 🟡 | EngineDriver: FGS, timers, `NetworkCallback`, notificaciones, boot | Tests ✅ (codec JNI, callback de timeouts). Falta en dispositivo: apagar Pi-hole → VPN se cierra; encender → se reactiva; reinicio del teléfono |
 | 5 🟡 | Geofencing + ubicación actual + radio + permisos | Tests ✅ (`effectiveInside`). Falta en dispositivo: entrar/salir del área (o mock location); transición con app cerrada; permiso "siempre" |
-| 6 | Conectar la UI a datos reales: dashboard completo (PLAN §5: estado, servidor, área, VPN, última/próxima comprobación), configuración, automatización, historial (Room) | Persistencia tras reinicio; el dashboard refleja cada estado del motor |
+| 6 🟡 | Conectar la UI a datos reales: dashboard completo (PLAN §5: estado, servidor, área, VPN, última/próxima comprobación), configuración, automatización (`auto_recover` en el engine), historial (Room) | Tests ✅. Falta en dispositivo: persistencia tras reinicio; el dashboard refleja cada estado del motor |
 | UI ✅ | Maqueta de todas las pantallas con datos de ejemplo (`ui/Model.kt` → `Demo`), según `docs/ui-reference.png` | Revisión visual aprobada. Las etapas 4–6 reemplazan `Demo` por datos reales |
 | 7 | Matriz de pruebas del plan §8 en dispositivo + endurecimiento | Checklist completo |
 

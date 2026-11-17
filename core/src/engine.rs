@@ -64,6 +64,10 @@ pub struct Config {
     /// Recovery backoff: base * 2^n, capped at max.
     pub backoff_base_ms: u64,
     pub backoff_max_ms: u64,
+    /// When false, a recovered server does not reactivate the DNS by itself:
+    /// the engine stays in `ServerUnavailable` until the conditions reset
+    /// (automation toggled, area re-entered or network flapped).
+    pub auto_recover: bool,
 }
 
 impl Default for Config {
@@ -75,6 +79,7 @@ impl Default for Config {
             retry_delay_ms: 2_000,
             backoff_base_ms: 15_000,
             backoff_max_ms: 15 * 60_000,
+            auto_recover: true,
         }
     }
 }
@@ -244,6 +249,10 @@ impl Engine {
                 }
             }
             (State::ServerUnavailable, true) => {
+                if !self.cfg.auto_recover {
+                    // Manual reactivation only: stop probing and keep the network DNS.
+                    return;
+                }
                 self.oks += 1;
                 if self.oks >= cfg.recover_threshold {
                     self.activate(out);
@@ -618,6 +627,33 @@ mod tests {
         let mut e = engine();
         assert_eq!(e.handle(Event::VpnFailed), vec![]);
         assert_eq!(e.state(), Disabled);
+    }
+
+    #[test]
+    fn manual_recovery_waits_for_condition_reset() {
+        let cfg = Config {
+            auto_recover: false,
+            ..Config::default()
+        };
+        let mut e = Engine::new(cfg).unwrap();
+        e.handle(Event::SetEnabled(true));
+        e.handle(Event::Geofence { inside: true });
+        for _ in 0..3 {
+            probe(&mut e, false);
+        }
+        assert_eq!(e.state(), ServerUnavailable);
+
+        // The server is back but auto-recovery is off: no activation, no more probes.
+        assert_eq!(probe(&mut e, true), vec![]);
+        assert_eq!(e.state(), ServerUnavailable);
+
+        // Toggling the automation off and on re-checks and activates normally.
+        e.handle(Event::SetEnabled(false));
+        e.handle(Event::SetEnabled(true));
+        assert_eq!(e.state(), CheckingServer);
+        let acts = probe(&mut e, true);
+        assert_eq!(e.state(), DnsActive);
+        assert_eq!(acts, vec![StartVpn, sched(60_000, e.generation)]);
     }
 
     #[test]

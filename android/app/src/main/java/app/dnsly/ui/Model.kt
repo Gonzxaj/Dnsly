@@ -26,7 +26,9 @@ data class DashboardState(
     val protocol: String,
     val avgRttMs: Int?,
     val checkIntervalS: Int,
+    /** Seconds until the next probe, or -1 when none is scheduled. */
     val nextCheckS: Int,
+    /** Seconds since the last probe, or -1 when none ran yet. */
     val lastCheckAgoS: Int,
 ) {
     val serverUp get() = state == DnsState.DnsActive
@@ -34,8 +36,6 @@ data class DashboardState(
 }
 
 enum class EventKind(val title: String, val color: Color) {
-    DnsOn("DNS activado", Palette.green),
-    DnsOff("DNS desactivado", Palette.orange),
     ServerDown("Servidor no disponible", Palette.orange),
     ServerBack("Servidor recuperado", Palette.green),
     EnterArea("Dentro del área", Palette.green),
@@ -45,38 +45,34 @@ enum class EventKind(val title: String, val color: Color) {
 
 data class HistoryEvent(val time: String, val kind: EventKind, val detail: String)
 
-// shortcut: area name, RTT, check timing and history are demo data until history is stored
-// (Room, Etapa 6). State, server and area come from the engine driver.
-object Demo {
-    fun dashboard(
-        state: DnsState,
-        subtitle: String,
-        privateDnsStrict: Boolean,
-        server: ServerConfig,
-        insideArea: Boolean,
-    ) = DashboardState(
+/** Builds the dashboard from live engine data; all values are real (Etapa 6). */
+fun dashboard(
+    state: DnsState,
+    subtitle: String,
+    privateDnsStrict: Boolean,
+    insideArea: Boolean,
+    areaName: String,
+    server: ServerConfig,
+    rttMs: Double?,
+    nextCheckAtMs: Long,
+    lastCheckAtMs: Long,
+    nowMs: Long,
+): DashboardState {
+    val nextCheckS = if (nextCheckAtMs > 0) ((nextCheckAtMs - nowMs) / 1000).toInt().coerceAtLeast(0) else -1
+    val lastCheckAgoS = if (lastCheckAtMs > 0) ((nowMs - lastCheckAtMs) / 1000).toInt().coerceAtLeast(0) else -1
+    return DashboardState(
         state = state,
         subtitle = subtitle,
         privateDnsStrict = privateDnsStrict,
         insideArea = insideArea,
-        areaName = "Casa",
+        areaName = areaName,
         serverName = server.name,
         serverAddress = server.address.ifBlank { "Sin configurar" },
         port = server.port,
         protocol = if (server.tcp) "TCP" else "UDP",
-        avgRttMs = if (state == DnsState.DnsActive) 12 else null,
+        avgRttMs = rttMs?.toInt(),
         checkIntervalS = server.intervalS,
-        nextCheckS = 9,
-        lastCheckAgoS = 3,
-    )
-
-    val history = listOf(
-        HistoryEvent("09:30", EventKind.DnsOn, "Todas las condiciones se cumplen"),
-        HistoryEvent("09:15", EventKind.ServerBack, "El servidor DNS volvió a responder"),
-        HistoryEvent("09:15", EventKind.DnsOff, "Servidor no disponible"),
-        HistoryEvent("09:14", EventKind.ServerDown, "3 fallos consecutivos (timeout)"),
-        HistoryEvent("09:10", EventKind.LeaveArea, "Saliste del área configurada"),
-        HistoryEvent("08:45", EventKind.EnterArea, "Entraste al área configurada"),
-        HistoryEvent("08:45", EventKind.DnsOn, "Todas las condiciones se cumplen"),
+        nextCheckS = nextCheckS,
+        lastCheckAgoS = lastCheckAgoS,
     )
 }

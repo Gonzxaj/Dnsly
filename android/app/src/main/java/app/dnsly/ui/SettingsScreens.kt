@@ -133,12 +133,16 @@ fun ServerScreen(initial: ServerConfig, onSave: (ServerConfig) -> Unit) {
     result?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = if (resultOk) Palette.green else Palette.orange) }
 }
 
+/** Real switches (Etapa 6): both persist through [EngineDriver]/AutomationPrefs. */
 @Composable
-fun AutomationScreen() {
-    var auto by rememberSaveable { mutableStateOf(true) }
-    var reactivate by rememberSaveable { mutableStateOf(true) }
-    SwitchCard("Activación automática", "Activa el DNS al cumplirse las condiciones", auto) { auto = it }
-    SwitchCard("Reactivación automática", "Vuelve a activarlo cuando el servidor se recupera", reactivate) { reactivate = it }
+fun AutomationScreen(
+    enabled: Boolean,
+    autoReactivate: Boolean,
+    onEnabled: (Boolean) -> Unit,
+    onAutoReactivate: (Boolean) -> Unit,
+) {
+    SwitchCard("Activación automática", "Activa el DNS al cumplirse las condiciones", enabled, onEnabled)
+    SwitchCard("Reactivación automática", "Vuelve a activarlo cuando el servidor se recupera", autoReactivate, onAutoReactivate)
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Ic.Info, Palette.muted, 20.dp)

@@ -75,14 +75,19 @@ fun DashboardScreen(s: DashboardState, onOpenServer: () -> Unit) {
 
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Ring(s.nextCheckS / s.checkIntervalS.toFloat(), Palette.green) {
-                Text("${s.nextCheckS}", style = MaterialTheme.typography.titleMedium, color = Palette.text)
+            val hasNext = s.nextCheckS >= 0
+            Ring(if (hasNext) (s.nextCheckS / s.checkIntervalS.toFloat()).coerceIn(0f, 1f) else 0f, Palette.green) {
+                Text(if (hasNext) "${s.nextCheckS}" else "—", style = MaterialTheme.typography.titleMedium, color = Palette.text)
             }
             Spacer(Modifier.width(14.dp))
             Column {
                 Label("Próxima comprobación")
-                Text("cada ${s.checkIntervalS} segundos", style = MaterialTheme.typography.titleMedium, color = Palette.text)
-                Caption("Última: hace ${s.lastCheckAgoS} s")
+                Text(
+                    if (hasNext) "cada ${s.checkIntervalS} segundos" else "Sin comprobación programada",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Palette.text,
+                )
+                Caption(if (s.lastCheckAgoS >= 0) "Última: hace ${s.lastCheckAgoS} s" else "Última: nunca")
             }
         }
     }
