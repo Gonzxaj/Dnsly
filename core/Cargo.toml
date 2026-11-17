@@ -1,0 +1,11 @@
+[package]
+name = "dnsflow-core"
+version = "0.1.0"
+edition = "2021"
+description = "DnsFlow core engine: DNS health probes and activation state machine"
+
+[lib]
+# cdylib for the Android JNI library (Etapa 2), rlib for tests.
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
