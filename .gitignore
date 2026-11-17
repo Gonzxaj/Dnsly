@@ -1,0 +1,22 @@
+# Rust
+target/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+.cxx/
+.externalNativeBuild/
+captures/
+*.iml
+.idea/
+# Native libs built from core/ by cargo-ndk
+android/app/src/main/jniLibs/
+
+# Build output (APK copied out of the container)
+dist/
+
+# Signing keys: never commit
+*.jks
+*.keystore
+keystore.properties
