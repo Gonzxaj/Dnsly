@@ -1,24 +1,31 @@
 # Contributing
 
-Gracias por tu interés en Dnsly. El proyecto es Kotlin + Rust y **todo el toolchain vive en Docker**: no instales Android SDK, NDK, Rust ni Gradle en tu máquina.
+Thanks for your interest in Dnsly. The project is Kotlin + Rust and **the whole toolchain
+lives in Docker**: do not install the Android SDK, NDK, Rust or Gradle on your machine.
 
-## Antes de mandar un PR
+## Before opening a PR
 
 ```bash
 docker/test-core.sh                    # Rust: cargo fmt --check, clippy -D warnings, tests
 docker/gradle.sh testDebugUnitTest     # Android: unit tests
 ```
 
-Ambos tienen que pasar en verde. Leé [AGENTS.md](AGENTS.md) y [ARCHITECTURE.md](ARCHITECTURE.md) antes de cambiar diseño: las decisiones técnicas (VPN solo-DNS, engine puro, fail-open al DNS de red) no son negociables por conveniencia.
+Both must pass. Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing the design: the
+technical decisions (DNS-only VPN, pure engine, fail-open to the network DNS) are not up for
+grabs for convenience.
 
-## Convenciones
+## Conventions
 
-- Commits en formato [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`...).
-- Código e identificadores en inglés; documentación y comunicación en español.
-- Funciones cortas, una responsabilidad, sin código muerto ni abstracciones especulativas.
-- Toda lógica nueva no trivial lleva su test. En Rust: nada de `unwrap()` en producción, y `cargo fmt` + `clippy -D warnings` limpios.
-- Nunca commitear claves de firma (`*.jks`, `*.keystore`, `keystore.properties`).
+- Commits in [Conventional Commits](https://www.conventionalcommits.org/) format
+  (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`...).
+- Code and identifiers in English.
+- Short functions, single responsibility, no dead code or speculative abstractions.
+- Every non-trivial new logic path gets a test. In Rust: no `unwrap()` in production code,
+  and `cargo fmt` + `clippy -D warnings` clean.
+- Never commit signing keys (`*.jks`, `*.keystore`, `keystore.properties`).
 
-## Reportar bugs
+## Reporting bugs
 
-Abrí un issue con: versión de Android, qué hacías, qué esperabas y qué pasó. Si podés, logs de `adb logcat -s Dnsly` ayudan un montón (los `Log.w` de error quedan en builds release).
+Open an issue with: Android version, what you were doing, what you expected and what
+happened. If you can, `adb logcat -s Dnsly` logs help a lot (the `Log.w` error paths stay in
+release builds).
