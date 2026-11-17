@@ -5,7 +5,8 @@ edition = "2021"
 description = "DnsFlow core engine: DNS health probes and activation state machine"
 
 [lib]
-# cdylib for the Android JNI library (Etapa 2), rlib for tests.
+# cdylib for the Android JNI library, rlib for tests.
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
+jni = "0.21.1"
