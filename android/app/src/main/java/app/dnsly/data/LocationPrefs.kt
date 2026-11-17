@@ -1,6 +1,7 @@
 package app.dnsly.data
 
 import android.content.Context
+import app.dnsly.debugLog
 
 data class LocationConfig(
     val hasLocation: Boolean,
@@ -43,7 +44,7 @@ object LocationPrefs {
     }
 
     fun saveInside(ctx: Context, inside: Boolean) {
-        android.util.Log.d("Dnsly", "saveInside=$inside")
+        debugLog("Dnsly", "saveInside=$inside")
         prefs(ctx).edit()
             .putBoolean("lastInside", inside)
             .putLong("insideAtMs", System.currentTimeMillis())

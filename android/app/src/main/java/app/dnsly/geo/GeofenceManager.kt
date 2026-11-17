@@ -7,6 +7,7 @@ import android.location.Location
 import android.util.Log
 import app.dnsly.data.LocationConfig
 import app.dnsly.data.LocationPrefs
+import app.dnsly.debugLog
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
@@ -30,11 +31,10 @@ object GeofenceManager {
     fun sync(ctx: Context) {
         val cfg = LocationPrefs.load(ctx)
         val perm = LocationAccess.hasGeofencePermission(ctx)
-        Log.d(
-            TAG,
+        debugLog(TAG) {
             "sync geofence=${cfg.geofenceEnabled} hasLoc=${cfg.hasLocation} " +
-                "perm=$perm lastInside=${cfg.lastInside}",
-        )
+                "perm=$perm lastInside=${cfg.lastInside}"
+        }
         val pending = pendingIntent(ctx)
         when {
             !cfg.geofenceEnabled || !cfg.hasLocation -> remove(ctx, pending)
@@ -51,7 +51,7 @@ object GeofenceManager {
     private fun register(ctx: Context, cfg: LocationConfig, pending: PendingIntent) {
         val key = "${cfg.lat}|${cfg.lng}|${cfg.radiusM}"
         if (registeredKey == key) {
-            Log.d(TAG, "geofence unchanged, skip re-register")
+            debugLog(TAG, "geofence unchanged, skip re-register")
             return
         }
         val geofence = Geofence.Builder()
@@ -70,7 +70,7 @@ object GeofenceManager {
         try {
             LocationServices.getGeofencingClient(ctx).addGeofences(request, pending)
                 .addOnSuccessListener {
-                    Log.d(TAG, "geofence registered r=${cfg.radiusM}m home=${cfg.lat},${cfg.lng}")
+                    debugLog(TAG, "geofence registered r=${cfg.radiusM}m home=${cfg.lat},${cfg.lng}")
                 }
                 .addOnFailureListener {
                     registeredKey = null // let the next sync retry
@@ -90,18 +90,17 @@ object GeofenceManager {
         LocationServices.getFusedLocationProviderClient(ctx).lastLocation
             .addOnSuccessListener { loc ->
                 if (loc == null) {
-                    Log.d(TAG, "geofence: no last location")
+                    debugLog(TAG, "geofence: no last location")
                     return@addOnSuccessListener
                 }
                 val home = Location("dnsly").apply {
                     latitude = cfg.lat
                     longitude = cfg.lng
                 }
-                Log.d(
-                    TAG,
+                debugLog(TAG) {
                     "geofence distance=${loc.distanceTo(home).toInt()}m " +
-                        "device=${loc.latitude},${loc.longitude} acc=${loc.accuracy}",
-                )
+                        "device=${loc.latitude},${loc.longitude} acc=${loc.accuracy}"
+                }
             }
     }
 

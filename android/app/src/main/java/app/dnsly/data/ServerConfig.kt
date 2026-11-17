@@ -9,7 +9,7 @@ data class ServerConfig(
     val tcp: Boolean = false,
     val domain: String = "example.com",
     val timeoutS: Int = 2,
-    val intervalS: Int = 15,
+    val intervalS: Int = 30,
     val failures: Int = 3,
 ) {
     val isConfigured get() = address.isNotBlank()

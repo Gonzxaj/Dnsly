@@ -11,6 +11,7 @@ import app.dnsly.data.ServerPrefs
 import app.dnsly.data.effectiveInside
 import app.dnsly.data.history.HistoryStore
 import app.dnsly.data.history.historyForTransition
+import app.dnsly.debugLog
 import app.dnsly.geo.GeofenceManager
 import app.dnsly.geo.LocationAccess
 import app.dnsly.net.NetworkMonitor
@@ -142,11 +143,10 @@ object EngineDriver {
         val ctx = app ?: return
         val cfg = LocationPrefs.load(ctx)
         val inside = effectiveInside(cfg)
-        Log.d(
-            TAG,
+        debugLog(TAG) {
             "refreshGeo geofence=${cfg.geofenceEnabled} hasLoc=${cfg.hasLocation} " +
-                "lastInside=${cfg.lastInside} inside=$inside",
-        )
+                "lastInside=${cfg.lastInside} inside=$inside"
+        }
         _geo.value = GeoState(
             hasLocation = cfg.hasLocation,
             lat = cfg.lat,
@@ -266,13 +266,13 @@ object EngineDriver {
         val previous = currentState
         currentState = EngineActions.parseState(NativeCore.engineState(h))
         _state.value = currentState
-        Log.d(TAG, "event=$event state=$previous->$currentState actions=$actions")
+        debugLog(TAG, "event=$event state=$previous->$currentState actions=$actions")
         if (currentState != previous) onStateChanged(previous, currentState)
         actions.forEach(::execute)
     }
 
     private fun execute(action: EngineAction) {
-        Log.d(TAG, "execute $action")
+        debugLog(TAG, "execute $action")
         when (action) {
             EngineAction.StartVpn -> startVpn()
             EngineAction.StopVpn -> stopVpn()

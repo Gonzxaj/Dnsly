@@ -8,6 +8,7 @@ import android.util.Log
 import app.dnsly.core.EngineDriver
 import app.dnsly.core.NativeCore
 import app.dnsly.data.ServerPrefs
+import app.dnsly.debugLog
 import app.dnsly.notify.Notifier
 import java.util.concurrent.Executors
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,17 +58,17 @@ class DnslyVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "service onCreate")
+        debugLog(TAG, "service onCreate")
         EngineDriver.ensure(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            Log.d(TAG, "service ACTION_STOP")
+            debugLog(TAG, "service ACTION_STOP")
             worker.execute { shutdown(VpnStatus.Stopped) }
             return START_STICKY
         }
-        Log.d(TAG, "service onStartCommand wanted=${EngineDriver.vpnWanted()}")
+        debugLog(TAG, "service onStartCommand wanted=${EngineDriver.vpnWanted()}")
         // Must happen promptly after startForegroundService; the system kills the app otherwise.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
@@ -98,7 +99,7 @@ class DnslyVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "service onDestroy forwarder=$forwarder")
+        debugLog(TAG, "service onDestroy forwarder=$forwarder")
         // Only if still running: after shutdown() the status is already final, and a newer
         // instance may have started meanwhile.
         worker.execute { if (forwarder != 0L) shutdown(VpnStatus.Stopped) }
@@ -150,12 +151,12 @@ class DnslyVpnService : VpnService() {
         }
         forwarder = handle
         _status.value = VpnStatus.Running
-        Log.d(TAG, "vpn running forwarder=$handle")
+        debugLog(TAG, "vpn running forwarder=$handle")
     }
 
     private fun stopForwarder() {
         if (forwarder != 0L) {
-            Log.d(TAG, "stopForwarder $forwarder")
+            debugLog(TAG, "stopForwarder $forwarder")
             NativeCore.forwarderStop(forwarder) // closes the TUN fd: Android drops the VPN
             forwarder = 0L
         }

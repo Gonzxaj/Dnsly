@@ -5,13 +5,14 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import app.dnsly.core.EngineDriver
+import app.dnsly.debugLog
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 
 /** Receives ENTER/EXIT transitions (and the initial trigger) and feeds them to the engine. */
 class GeofenceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d(TAG, "geofence broadcast received extras=${intent.extras?.keySet()}")
+        debugLog(TAG, "geofence broadcast received extras=${intent.extras?.keySet()}")
         val event = GeofencingEvent.fromIntent(intent)
         if (event == null) {
             Log.w(TAG, "geofence event null extras=${intent.extras}")
@@ -31,10 +32,9 @@ class GeofenceReceiver : BroadcastReceiver() {
             }
         }
         val loc = event.triggeringLocation
-        Log.d(
-            TAG,
-            "geofence transition=$inside at=${loc?.latitude},${loc?.longitude} acc=${loc?.accuracy}",
-        )
+        debugLog(TAG) {
+            "geofence transition=$inside at=${loc?.latitude},${loc?.longitude} acc=${loc?.accuracy}"
+        }
         EngineDriver.onGeofenceInside(context, inside)
     }
 
