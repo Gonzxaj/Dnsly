@@ -6,7 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import app.dnsly.MainActivity
+import app.dnsly.R
+import app.dnsly.service.DnslyVpnService
 
 /** Notification channels and builders. Channels are created once, lazily, on first engine start. */
 object Notifier {
@@ -26,11 +29,24 @@ object Notifier {
     }
 
     /** Ongoing notification the foreground VPN service must show. */
-    fun vpnNotification(ctx: Context): Notification = base(ctx, CHANNEL_VPN)
-        .setContentTitle("Dnsly")
-        .setContentText("VPN local de DNS activa")
-        .setOngoing(true)
-        .build()
+    fun vpnNotification(ctx: Context): Notification {
+        val stop = PendingIntent.getService(
+            ctx, 0,
+            Intent(ctx, DnslyVpnService::class.java).setAction(DnslyVpnService.ACTION_DISABLE),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val action = Notification.Action.Builder(
+            Icon.createWithResource(ctx, R.drawable.ic_stat_dnsly), "Detener", stop,
+        ).build()
+        return base(ctx, CHANNEL_VPN)
+            .setSmallIcon(R.drawable.ic_stat_dnsly)
+            .setLargeIcon(Icon.createWithResource(ctx, R.mipmap.ic_launcher))
+            .addAction(action)
+            .setContentTitle("Dnsly")
+            .setContentText("VPN local de DNS activa")
+            .setOngoing(true)
+            .build()
+    }
 
     /** Replaces the previous event notification; used for state changes that need attention. */
     fun postEvent(ctx: Context, title: String, text: String) {
@@ -43,7 +59,7 @@ object Notifier {
             ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
         return Notification.Builder(ctx, channel)
-            .setSmallIcon(ctx.applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_stat_dnsly)
             .setContentIntent(open)
     }
 }

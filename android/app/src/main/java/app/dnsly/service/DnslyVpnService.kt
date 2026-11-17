@@ -42,6 +42,12 @@ class DnslyVpnService : VpnService() {
          */
         const val ACTION_STOP = "app.dnsly.action.STOP_VPN"
 
+        /**
+         * "Detener" action of the VPN notification: turns the automation off through the engine
+         * (persisted), which then emits StopVpn → ACTION_STOP for a clean teardown.
+         */
+        const val ACTION_DISABLE = "app.dnsly.action.DISABLE"
+
         // Virtual addresses; the DNS ones must match DNS_V4 / DNS_V6 in core/src/forwarder.rs.
         private const val CLIENT_V4 = "10.111.222.2"
         private const val DNS_V4 = "10.111.222.1"
@@ -63,6 +69,10 @@ class DnslyVpnService : VpnService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_DISABLE) {
+            EngineDriver.setEnabled(false)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             debugLog(TAG, "service ACTION_STOP")
             worker.execute { shutdown(VpnStatus.Stopped) }
