@@ -1,8 +1,8 @@
-# Proyecto: DnsFlow — Smart DNS Management for Android
+# Proyecto: Dnsly — Smart DNS Management for Android
 
 ## Objetivo
 
-Desarrollar una aplicación nativa para Android llamada **DnsFlow**, utilizando **Kotlin + Rust**, que permita administrar automáticamente el DNS utilizado por el dispositivo según la ubicación geográfica del usuario y la disponibilidad del servidor DNS configurado.
+Desarrollar una aplicación nativa para Android llamada **Dnsly**, utilizando **Kotlin + Rust**, que permita administrar automáticamente el DNS utilizado por el dispositivo según la ubicación geográfica del usuario y la disponibilidad del servidor DNS configurado.
 
 La aplicación debe funcionar sin root, sin depender de servicios VPN externos y con el menor consumo posible de batería y recursos.
 
@@ -69,7 +69,7 @@ Evaluar especialmente:
 
 La aplicación no debe afirmar que cambia el DNS global del sistema si técnicamente está utilizando una VPN local para interceptar y resolver consultas.
 
-El comportamiento esperado es que el dispositivo utilice el DNS personalizado mientras DnsFlow esté activo y vuelva al funcionamiento DNS habitual cuando se desactive.
+El comportamiento esperado es que el dispositivo utilice el DNS personalizado mientras Dnsly esté activo y vuelva al funcionamiento DNS habitual cuando se desactive.
 
 **Importante:** estudiar cuidadosamente cómo evitar fugas de DNS y cómo manejar los casos en los que el servidor deja de responder mientras la VPN está activa.
 
@@ -134,7 +134,7 @@ La aplicación debe incluir:
 
 Mostrar claramente:
 
-- Estado actual de DnsFlow.
+- Estado actual de Dnsly.
 - DNS configurado.
 - IP del servidor.
 - Disponibilidad del servidor.
@@ -261,7 +261,7 @@ No agregar funcionalidades que no sean necesarias para el objetivo inicial.
 
 ## 10. Resultado esperado
 
-Una aplicación Android llamada **DnsFlow** que permita utilizar un DNS personalizado de forma inteligente:
+Una aplicación Android llamada **Dnsly** que permita utilizar un DNS personalizado de forma inteligente:
 
 - Cuando el usuario está en su domicilio, activa su DNS privado.
 - Si el servidor DNS deja de funcionar, desactiva el mecanismo personalizado.

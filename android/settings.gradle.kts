@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "dnsflow"
+rootProject.name = "dnsly"
 include(":app")

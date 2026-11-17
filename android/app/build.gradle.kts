@@ -4,13 +4,13 @@ plugins {
 }
 
 android {
-    namespace = "app.dnsflow"
+    namespace = "app.dnsly"
     compileSdk = 37
     // Same NDK cargo-ndk links with (docker/Dockerfile); AGP uses it to strip the .so files.
     ndkVersion = "30.0.16248370"
 
     defaultConfig {
-        applicationId = "app.dnsflow"
+        applicationId = "app.dnsly"
         minSdk = 26
         // Not 37 yet: targeting Android 17 needs the runtime local-network permission to reach the Pi-hole.
         targetSdk = 36
@@ -51,6 +51,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     testImplementation("junit:junit:4.13.2")
 }

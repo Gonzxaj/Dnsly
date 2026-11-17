@@ -119,6 +119,6 @@ fn remaining(deadline: Instant) -> Result<Duration, ProbeError> {
 }
 
 /// Unpredictable query ID from std's per-process random hash keys (no `rand` dependency).
-fn random_id() -> u16 {
+pub(crate) fn random_id() -> u16 {
     RandomState::new().build_hasher().finish() as u16
 }

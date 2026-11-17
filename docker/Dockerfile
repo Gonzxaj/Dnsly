@@ -1,7 +1,7 @@
-# Build env for DnsFlow: JDK 21 + Gradle (base), Android SDK + NDK, Rust + cargo-ndk.
+# Build env for Dnsly: JDK 21 + Gradle (base), Android SDK + NDK, Rust + cargo-ndk.
 # Everything up to WORKDIR is a verbatim copy of go-data-android's docker/Dockerfile.android,
 # so Docker reuses those layers and the SDK is stored once on disk. Keep it identical;
-# put DnsFlow-only changes below it.
+# put Dnsly-only changes below it.
 FROM gradle:9.9.1-jdk21
 
 RUN apt-get update \
@@ -23,8 +23,6 @@ RUN curl -fsSL -o /tmp/tools.zip "https://dl.google.com/android/repository/comma
 WORKDIR /src
 # ---- end of layers shared with go-data-android ----
 
-LABEL project=dnsflow
-
 RUN apt-get update \
  && apt-get install -y --no-install-recommends gcc libc6-dev \
  && rm -rf /var/lib/apt/lists/*
@@ -42,3 +40,6 @@ RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-to
       --component clippy,rustfmt --target aarch64-linux-android,x86_64-linux-android \
  && cargo install --locked cargo-ndk --version $CARGO_NDK \
  && rm -rf /opt/cargo/registry /opt/cargo/git
+
+# Last, so editing it does not rebuild the layers above.
+LABEL project=dnsly

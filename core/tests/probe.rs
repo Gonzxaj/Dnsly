@@ -5,8 +5,8 @@ use std::net::{TcpListener, UdpSocket};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use dnsflow_core::dns::DnsError;
-use dnsflow_core::probe::{probe, ProbeConfig, ProbeError, Protocol};
+use dnsly_core::dns::DnsError;
+use dnsly_core::probe::{probe, ProbeConfig, ProbeError, Protocol};
 
 /// Turns a received query into a response with `rcode`.
 fn reply(query: &[u8], rcode: u8) -> Vec<u8> {

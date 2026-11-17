@@ -1,4 +1,4 @@
-package app.dnsflow.core
+package app.dnsly.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
