@@ -21,7 +21,15 @@ class GeofenceReceiver : BroadcastReceiver() {
             Log.w(TAG, "geofence event error=${event.errorCode}")
             return
         }
-        val inside = event.geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER
+        val inside = when (event.geofenceTransition) {
+            Geofence.GEOFENCE_TRANSITION_ENTER -> true
+            Geofence.GEOFENCE_TRANSITION_EXIT -> false
+            else -> {
+                // Unknown transition types must not toggle the area state.
+                Log.w(TAG, "geofence transition ignored: ${event.geofenceTransition}")
+                return
+            }
+        }
         val loc = event.triggeringLocation
         Log.d(
             TAG,

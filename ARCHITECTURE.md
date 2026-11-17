@@ -201,7 +201,7 @@ Dnsly/
 | 5 🟡 | Geofencing + ubicación actual + radio + permisos | Tests ✅ (`effectiveInside`). Falta en dispositivo: entrar/salir del área (o mock location); transición con app cerrada; permiso "siempre" |
 | 6 🟡 | Conectar la UI a datos reales: dashboard completo (PLAN §5: estado, servidor, área, VPN, última/próxima comprobación), configuración, automatización (`auto_recover` en el engine), historial (Room) | Tests ✅. Falta en dispositivo: persistencia tras reinicio; el dashboard refleja cada estado del motor |
 | UI ✅ | Maqueta de todas las pantallas con datos de ejemplo (`ui/Model.kt` → `Demo`), según `docs/ui-reference.png` | Revisión visual aprobada. Las etapas 4–6 reemplazan `Demo` por datos reales |
-| 7 | Matriz de pruebas del plan §8 en dispositivo + endurecimiento | Checklist completo |
+| 7 🟡 | Matriz de pruebas del plan §8 en dispositivo + endurecimiento | Endurecimiento ✅ (geofence transition guard, NetworkMonitor order-safe, FGS/VPN lifecycle). Falta la matriz completa en dispositivo |
 
 **Build:** todo corre en Docker (`docker/`), sin SDK local. Misma base que go-data-android: Gradle 9.9.1 + JDK 21, AGP 9.5.1, Kotlin 2.4.21, `compileSdk` 37. Se agregan NDK 30.0.16248370, Rust 1.99.1 y cargo-ndk 4.1.2.
 - `docker/test-core.sh`: fmt + clippy + tests del core.
