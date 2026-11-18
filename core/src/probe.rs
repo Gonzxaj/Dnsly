@@ -2,9 +2,11 @@
 //! Blocking, std-only. Callers run it on a background thread.
 
 use std::collections::hash_map::RandomState;
+use std::collections::HashMap;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::dns::{self, DnsError};
@@ -51,25 +53,64 @@ impl From<io::Error> for ProbeError {
     }
 }
 
-pub fn probe(cfg: &ProbeConfig) -> Result<ProbeOk, ProbeError> {
-    let start = Instant::now();
-    let deadline = start + cfg.timeout;
-    // shortcut: hostname lookup uses the system resolver and is not bounded by `timeout`;
-    // fine for IP literals (the normal Pi-hole case), revisit if hostnames hang in practice.
-    let addr = (cfg.server.as_str(), cfg.port)
+/// How long a resolved `server:port` is reused before resolving again. A hostname lookup is
+/// a real DNS query through the system resolver; probes run every few seconds.
+const RESOLVE_TTL: Duration = Duration::from_secs(300);
+
+fn resolved() -> &'static Mutex<HashMap<String, (SocketAddr, Instant)>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, (SocketAddr, Instant)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Resolves `server:port`, reusing a recent answer. `forget` drops the entry so the next
+/// probe re-resolves — used when a probe fails, which may mean the IP changed.
+fn resolve_cached(server: &str, port: u16) -> Result<SocketAddr, ProbeError> {
+    let key = format!("{server}:{port}");
+    if let Ok(cache) = resolved().lock() {
+        if let Some((addr, at)) = cache.get(&key) {
+            if at.elapsed() < RESOLVE_TTL {
+                return Ok(*addr);
+            }
+        }
+    }
+    // shortcut: the lookup is not bounded by the probe `timeout`; IP literals skip DNS anyway.
+    let addr = (server, port)
         .to_socket_addrs()
         .map_err(|_| ProbeError::Resolve)?
         .next()
         .ok_or(ProbeError::Resolve)?;
+    if let Ok(mut cache) = resolved().lock() {
+        cache.insert(key, (addr, Instant::now()));
+    }
+    Ok(addr)
+}
+
+fn forget(server: &str, port: u16) {
+    if let Ok(mut cache) = resolved().lock() {
+        cache.remove(&format!("{server}:{port}"));
+    }
+}
+
+pub fn probe(cfg: &ProbeConfig) -> Result<ProbeOk, ProbeError> {
+    let start = Instant::now();
+    let deadline = start + cfg.timeout;
+    let addr = resolve_cached(&cfg.server, cfg.port)?;
     let query = dns::build_query(random_id(), &cfg.test_domain).map_err(ProbeError::Dns)?;
     let rcode = match cfg.protocol {
-        Protocol::Udp => probe_udp(addr, &query, deadline)?,
-        Protocol::Tcp => probe_tcp(addr, &query, deadline)?,
+        Protocol::Udp => probe_udp(addr, &query, deadline),
+        Protocol::Tcp => probe_tcp(addr, &query, deadline),
     };
-    Ok(ProbeOk {
-        rtt: start.elapsed(),
-        rcode,
-    })
+    match rcode {
+        Ok(rc) => Ok(ProbeOk {
+            rtt: start.elapsed(),
+            rcode: rc,
+        }),
+        // A failed probe may mean the hostname now points elsewhere: re-resolve next time.
+        Err(e) => {
+            forget(&cfg.server, cfg.port);
+            Err(e)
+        }
+    }
 }
 
 fn probe_udp(addr: SocketAddr, query: &[u8], deadline: Instant) -> Result<u8, ProbeError> {
@@ -121,4 +162,20 @@ fn remaining(deadline: Instant) -> Result<Duration, ProbeError> {
 /// Unpredictable query ID from std's per-process random hash keys (no `rand` dependency).
 pub(crate) fn random_id() -> u16 {
     RandomState::new().build_hasher().finish() as u16
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolution_is_cached_and_forgotten() {
+        let key = "localhost:53".to_string();
+        forget("localhost", 53);
+        let addr = resolve_cached("localhost", 53).unwrap();
+        assert!(resolved().lock().unwrap().contains_key(&key));
+        assert_eq!(resolve_cached("localhost", 53).unwrap(), addr);
+        forget("localhost", 53);
+        assert!(!resolved().lock().unwrap().contains_key(&key));
+    }
 }

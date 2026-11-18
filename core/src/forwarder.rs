@@ -1,12 +1,13 @@
 //! DNS-only VPN forwarder. Reads IP packets from the TUN fd, forwards UDP/53 queries sent to
 //! the virtual DNS address to the upstream server, and writes the answers back into the TUN.
-//! One thread, `poll(2)` over the TUN fd and one upstream UDP socket; no async runtime.
+//! One thread, `poll(2)` over the TUN fd, the upstream UDP socket and a wake eventfd; the loop
+//! only wakes for packets, query deadlines or shutdown — never on a fixed period.
 
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs, UdpSocket};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -15,9 +16,6 @@ use std::time::{Duration, Instant};
 /// Virtual DNS server addresses. Must match the VpnService.Builder setup in DnslyVpnService.kt.
 pub const DNS_V4: Ipv4Addr = Ipv4Addr::new(10, 111, 222, 1);
 pub const DNS_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0x111, 0x222, 0, 0, 0, 0, 1);
-
-/// How often the loop checks the stop flag when idle.
-const POLL_MS: i32 = 200;
 /// Queries in flight; more are dropped (the client retries).
 const MAX_PENDING: usize = 1024;
 /// Minimum interval between `on_timeout` notifications, so a flood of expiring queries
@@ -37,6 +35,8 @@ pub struct Flow {
 /// Running forwarder thread. Dropping it stops the thread, waits for it and closes the TUN fd.
 pub struct Forwarder {
     stop: Arc<AtomicBool>,
+    /// Written to on drop so the poll loop wakes immediately instead of waiting for a timeout.
+    wake: OwnedFd,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -64,13 +64,16 @@ impl Forwarder {
         let sock = UdpSocket::bind(bind)?;
         sock.connect(upstream)?;
         sock.set_nonblocking(true)?;
+        let wake = eventfd()?;
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
+        let wake_fd = wake.as_raw_fd();
         let thread = thread::Builder::new()
             .name("dnsly-forwarder".into())
-            .spawn(move || run(tun, sock, timeout, on_timeout, &flag))?;
+            .spawn(move || run(tun, sock, wake_fd, timeout, on_timeout, &flag))?;
         Ok(Forwarder {
             stop,
+            wake,
             thread: Some(thread),
         })
     }
@@ -79,9 +82,23 @@ impl Forwarder {
 impl Drop for Forwarder {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        let byte = 1u64.to_ne_bytes();
+        // SAFETY: `wake` stays open until the fields drop, after the join below.
+        unsafe { libc::write(self.wake.as_raw_fd(), byte.as_ptr().cast(), 8) };
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+fn eventfd() -> io::Result<OwnedFd> {
+    // SAFETY: no preconditions; the flags are valid on Linux/Android.
+    let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
+    if fd < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        // SAFETY: `fd` is a fresh descriptor owned by this call.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
     }
 }
 
@@ -94,15 +111,27 @@ struct Pending {
 fn run(
     mut tun: File,
     sock: UdpSocket,
+    wake: RawFd,
     timeout: Duration,
     on_timeout: Option<Box<dyn Fn() + Send>>,
     stop: &AtomicBool,
 ) {
     let mut pending: HashMap<u16, Pending> = HashMap::new();
     let mut next_id = crate::probe::random_id();
-    let mut buf = vec![0u8; 65535];
+    // TUN packets are bounded by the interface MTU (1500); upstream replies can be large.
+    let mut tun_buf = vec![0u8; 2048];
+    let mut up_buf = vec![0u8; 65535];
+    let mut out = Vec::with_capacity(2048);
     let mut last_notify = Instant::now() - NOTIFY_TIMEOUT;
     while !stop.load(Ordering::Relaxed) {
+        // Sleep until the earliest query deadline (or forever when idle): the loop only wakes
+        // for packets, a deadline or the stop eventfd, never on a fixed period.
+        let poll_ms = pending
+            .values()
+            .map(|p| p.deadline)
+            .min()
+            .map(|d| d.saturating_duration_since(Instant::now()))
+            .map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32);
         let mut fds = [
             libc::pollfd {
                 fd: tun.as_raw_fd(),
@@ -114,9 +143,14 @@ fn run(
                 events: libc::POLLIN,
                 revents: 0,
             },
+            libc::pollfd {
+                fd: wake,
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
-        // SAFETY: `fds` is a valid array of 2 pollfd for the duration of the call.
-        if unsafe { libc::poll(fds.as_mut_ptr(), 2, POLL_MS) } < 0 {
+        // SAFETY: `fds` is a valid array of 3 pollfd for the duration of the call.
+        if unsafe { libc::poll(fds.as_mut_ptr(), 3, poll_ms) } < 0 {
             if io::Error::last_os_error().kind() == ErrorKind::Interrupted {
                 continue;
             }
@@ -127,18 +161,21 @@ fn run(
         }
 
         if fds[0].revents & libc::POLLIN != 0 {
-            match tun.read(&mut buf) {
+            match tun.read(&mut tun_buf) {
                 Ok(n) => {
-                    if let Some((flow, query)) = parse_query(&buf[..n]) {
+                    if let Some((flow, query)) = parse_query(&tun_buf[..n]) {
                         if pending.len() < MAX_PENDING {
+                            let orig_id = u16::from_be_bytes([query[0], query[1]]);
+                            // Offset of the DNS payload inside tun_buf, so the ID can be
+                            // rewritten in place and the query sent upstream without copying.
+                            let off = query.as_ptr() as usize - tun_buf.as_ptr() as usize;
+                            let qlen = query.len();
                             while pending.contains_key(&next_id) {
                                 next_id = next_id.wrapping_add(1);
                             }
-                            let mut q = query.to_vec();
-                            let orig_id = u16::from_be_bytes([q[0], q[1]]);
-                            q[0..2].copy_from_slice(&next_id.to_be_bytes());
+                            tun_buf[off..off + 2].copy_from_slice(&next_id.to_be_bytes());
                             // Send errors (no route, refused) just leave the query to time out.
-                            if sock.send(&q).is_ok() {
+                            if sock.send(&tun_buf[off..off + qlen]).is_ok() {
                                 pending.insert(
                                     next_id,
                                     Pending {
@@ -159,13 +196,13 @@ fn run(
 
         if fds[1].revents & libc::POLLIN != 0 {
             loop {
-                match sock.recv(&mut buf) {
+                match sock.recv(&mut up_buf) {
                     Ok(n) if n >= DNS_HEADER => {
-                        let id = u16::from_be_bytes([buf[0], buf[1]]);
+                        let id = u16::from_be_bytes([up_buf[0], up_buf[1]]);
                         if let Some(p) = pending.remove(&id) {
-                            buf[0..2].copy_from_slice(&p.orig_id.to_be_bytes());
-                            let reply = build_reply(&p.flow, &buf[..n]);
-                            if tun.write(&reply).is_err() {
+                            up_buf[0..2].copy_from_slice(&p.orig_id.to_be_bytes());
+                            write_reply(&p.flow, &up_buf[..n], &mut out);
+                            if tun.write(&out).is_err() {
                                 return;
                             }
                         }
@@ -251,56 +288,69 @@ pub fn build_reply(flow: &Flow, payload: &[u8]) -> Vec<u8> {
 }
 
 fn build_packet(src: IpAddr, dst: IpAddr, sport: u16, dport: u16, payload: &[u8]) -> Vec<u8> {
-    let udp_len = (8 + payload.len()) as u16;
-    let mut udp = Vec::with_capacity(udp_len.into());
-    udp.extend_from_slice(&sport.to_be_bytes());
-    udp.extend_from_slice(&dport.to_be_bytes());
-    udp.extend_from_slice(&udp_len.to_be_bytes());
-    udp.extend_from_slice(&[0, 0]);
-    udp.extend_from_slice(payload);
-
-    let mut pkt = match (src, dst) {
-        (IpAddr::V4(s), IpAddr::V4(d)) => {
-            let mut h = vec![0x45, 0];
-            h.extend_from_slice(&(20 + udp_len).to_be_bytes());
-            h.extend_from_slice(&[0, 0, 0x40, 0, 64, UDP, 0, 0]); // id 0, DF, TTL 64
-            h.extend_from_slice(&s.octets());
-            h.extend_from_slice(&d.octets());
-            let c = checksum(&h, 0);
-            h[10..12].copy_from_slice(&c.to_be_bytes());
-            let pseudo = [
-                &s.octets()[..],
-                &d.octets(),
-                &[0, UDP],
-                &udp_len.to_be_bytes(),
-            ]
-            .concat();
-            set_udp_checksum(&mut udp, &pseudo);
-            h
-        }
-        (IpAddr::V6(s), IpAddr::V6(d)) => {
-            let mut h = vec![0x60, 0, 0, 0];
-            h.extend_from_slice(&udp_len.to_be_bytes());
-            h.extend_from_slice(&[UDP, 64]);
-            h.extend_from_slice(&s.octets());
-            h.extend_from_slice(&d.octets());
-            let len32 = u32::from(udp_len).to_be_bytes();
-            let pseudo = [&s.octets()[..], &d.octets(), &len32, &[0, 0, 0, UDP]].concat();
-            set_udp_checksum(&mut udp, &pseudo);
-            h
-        }
-        _ => unreachable!("flow addresses are always the same IP version"),
-    };
-    pkt.extend_from_slice(&udp);
-    pkt
+    let mut out = Vec::new();
+    build_packet_into(src, dst, sport, dport, payload, &mut out);
+    out
 }
 
-fn set_udp_checksum(udp: &mut [u8], pseudo: &[u8]) {
-    let c = match checksum(udp, sum(pseudo, 0)) {
-        0 => 0xFFFF, // 0 means "no checksum" in UDP
+/// Writes the answer packet for `flow` into `out` (cleared first) so the hot path reuses one buffer.
+fn write_reply(flow: &Flow, payload: &[u8], out: &mut Vec<u8>) {
+    build_packet_into(flow.dst, flow.src, flow.dport, flow.sport, payload, out)
+}
+
+fn build_packet_into(
+    src: IpAddr,
+    dst: IpAddr,
+    sport: u16,
+    dport: u16,
+    payload: &[u8],
+    out: &mut Vec<u8>,
+) {
+    out.clear();
+    out.reserve(60 + payload.len());
+    let udp_len = (8 + payload.len()) as u16;
+    match (src, dst) {
+        (IpAddr::V4(s), IpAddr::V4(d)) => {
+            out.extend_from_slice(&[0x45, 0]);
+            out.extend_from_slice(&(20 + udp_len).to_be_bytes());
+            out.extend_from_slice(&[0, 0, 0x40, 0, 64, UDP, 0, 0]); // id 0, DF, TTL 64
+            out.extend_from_slice(&s.octets());
+            out.extend_from_slice(&d.octets());
+            let c = checksum(&out[..20], 0);
+            out[10..12].copy_from_slice(&c.to_be_bytes());
+        }
+        (IpAddr::V6(s), IpAddr::V6(d)) => {
+            out.extend_from_slice(&[0x60, 0, 0, 0]);
+            out.extend_from_slice(&udp_len.to_be_bytes());
+            out.extend_from_slice(&[UDP, 64]);
+            out.extend_from_slice(&s.octets());
+            out.extend_from_slice(&d.octets());
+        }
+        _ => unreachable!("flow addresses are always the same IP version"),
+    }
+    let udp_start = out.len();
+    out.extend_from_slice(&sport.to_be_bytes());
+    out.extend_from_slice(&dport.to_be_bytes());
+    out.extend_from_slice(&udp_len.to_be_bytes());
+    out.extend_from_slice(&[0, 0]); // checksum filled below
+    out.extend_from_slice(payload);
+    // 0 means "no checksum" in UDP.
+    let c = match checksum(&out[udp_start..], pseudo_sum(src, dst, udp_len)) {
+        0 => 0xFFFF,
         c => c,
     };
-    udp[6..8].copy_from_slice(&c.to_be_bytes());
+    out[udp_start + 6..udp_start + 8].copy_from_slice(&c.to_be_bytes());
+}
+
+/// Partial sum of the UDP pseudo-header. For IPv4 it is src+dst+"0,17"+len (12 bytes); for
+/// IPv6 src+dst+len32+zeros+next-header — both reduce to this since `udp_len` fits u16.
+fn pseudo_sum(src: IpAddr, dst: IpAddr, udp_len: u16) -> u32 {
+    let base = match (src, dst) {
+        (IpAddr::V4(s), IpAddr::V4(d)) => sum(&s.octets(), sum(&d.octets(), 0)),
+        (IpAddr::V6(s), IpAddr::V6(d)) => sum(&s.octets(), sum(&d.octets(), 0)),
+        _ => unreachable!("flow addresses are always the same IP version"),
+    };
+    base + u32::from(UDP) + u32::from(udp_len)
 }
 
 fn sum(data: &[u8], mut acc: u32) -> u32 {

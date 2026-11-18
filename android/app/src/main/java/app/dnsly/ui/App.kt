@@ -48,8 +48,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import app.dnsly.core.EngineDriver
 import app.dnsly.core.EngineState
+import app.dnsly.data.ServerConfig
 import app.dnsly.data.ServerPrefs
-import app.dnsly.data.history.HistoryStore
 import app.dnsly.net.privateDnsStrict
 import app.dnsly.service.DnslyVpnService
 import app.dnsly.service.VpnStatus
@@ -76,46 +76,9 @@ fun App() {
     val ctx = LocalContext.current
     var screen by rememberSaveable { mutableStateOf(Screen.Dashboard) }
     var server by remember { mutableStateOf(ServerPrefs.load(ctx)) }
-    val vpn by DnslyVpnService.status.collectAsState()
-    val strict by remember { privateDnsStrict(ctx.applicationContext) }.collectAsState(false)
     val engineState by EngineDriver.state.collectAsState()
     val automationOn by EngineDriver.enabled.collectAsState()
     val autoReactivate by EngineDriver.autoReactivate.collectAsState()
-    val inside by EngineDriver.insideArea.collectAsState()
-    val geo by EngineDriver.geo.collectAsState()
-    val probeStats by EngineDriver.probeStats.collectAsState()
-    HistoryStore.ensure(ctx)
-    val history by remember { HistoryStore.events() }.collectAsState(emptyList())
-    // 1 s ticker: the dashboard countdowns ("hace X s" / "en X s") are wall-clock derived.
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000)
-            nowMs = System.currentTimeMillis()
-        }
-    }
-    val (state, subtitle) = when (engineState) {
-        EngineState.DnsActive -> DnsState.DnsActive to DnsState.DnsActive.subtitle
-        EngineState.CheckingServer -> DnsState.CheckingServer to "Probando el servidor DNS"
-        EngineState.ServerUnavailable ->
-            DnsState.ServerUnavailable to "Usando el DNS de la red · reintentando"
-        EngineState.OutsideGeofence -> DnsState.OutsideGeofence to "Usando el DNS de la red"
-        EngineState.VpnError ->
-            DnsState.VpnError to ((vpn as? VpnStatus.Error)?.message ?: DnsState.VpnError.subtitle)
-        EngineState.Disabled -> DnsState.Disabled to "La automatización está apagada"
-    }
-    val dash = dashboard(
-        state = state,
-        subtitle = subtitle,
-        privateDnsStrict = strict,
-        insideArea = inside,
-        areaName = if (geo.geofenceEnabled && geo.hasLocation) "Área configurada" else "Sin área",
-        server = server,
-        rttMs = probeStats.rttMs,
-        nextCheckAtMs = probeStats.nextCheckAtMs,
-        lastCheckAtMs = probeStats.lastCheckAtMs,
-        nowMs = nowMs,
-    )
     val consent = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == Activity.RESULT_OK) EngineDriver.setEnabled(true)
     }
@@ -147,8 +110,8 @@ fun App() {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             when (screen) {
-                Screen.Dashboard -> DashboardScreen(dash, onOpenServer = { screen = Screen.Server })
-                Screen.History -> HistoryScreen(history)
+                Screen.Dashboard -> DashboardPanel(server, engineState) { screen = Screen.Server }
+                Screen.History -> HistoryScreen()
                 Screen.Location -> LocationScreen()
                 Screen.Settings -> SettingsScreen(
                     onServer = { screen = Screen.Server },
@@ -184,6 +147,52 @@ fun App() {
             },
         )
     }
+}
+
+/**
+ * Dashboard subtree: owns the flows and the 1 s countdown ticker only it renders, so the other
+ * tabs do not recompose every second (and the private-DNS callback is not registered either).
+ */
+@Composable
+private fun DashboardPanel(server: ServerConfig, engineState: EngineState, onOpenServer: () -> Unit) {
+    val ctx = LocalContext.current
+    val vpn by DnslyVpnService.status.collectAsState()
+    val strict by remember { privateDnsStrict(ctx.applicationContext) }.collectAsState(false)
+    val inside by EngineDriver.insideArea.collectAsState()
+    val geo by EngineDriver.geo.collectAsState()
+    val probeStats by EngineDriver.probeStats.collectAsState()
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+    val (state, subtitle) = when (engineState) {
+        EngineState.DnsActive -> DnsState.DnsActive to DnsState.DnsActive.subtitle
+        EngineState.CheckingServer -> DnsState.CheckingServer to "Probando el servidor DNS"
+        EngineState.ServerUnavailable ->
+            DnsState.ServerUnavailable to "Usando el DNS de la red · reintentando"
+        EngineState.OutsideGeofence -> DnsState.OutsideGeofence to "Usando el DNS de la red"
+        EngineState.VpnError ->
+            DnsState.VpnError to ((vpn as? VpnStatus.Error)?.message ?: DnsState.VpnError.subtitle)
+        EngineState.Disabled -> DnsState.Disabled to "La automatización está apagada"
+    }
+    DashboardScreen(
+        dashboard(
+            state = state,
+            subtitle = subtitle,
+            privateDnsStrict = strict,
+            insideArea = inside,
+            areaName = if (geo.geofenceEnabled && geo.hasLocation) "Área configurada" else "Sin área",
+            server = server,
+            rttMs = probeStats.rttMs,
+            nextCheckAtMs = probeStats.nextCheckAtMs,
+            lastCheckAtMs = probeStats.lastCheckAtMs,
+            nowMs = nowMs,
+        ),
+        onOpenServer,
+    )
 }
 
 /** go-data-android's bottom nav, split in two around the power button. */

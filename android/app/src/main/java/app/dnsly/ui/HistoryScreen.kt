@@ -10,15 +10,19 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.dnsly.data.history.HistoryEntry
 import app.dnsly.data.history.HistoryKind
+import app.dnsly.data.history.HistoryStore
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -30,7 +34,11 @@ private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
 private val dateTimeFormat = DateTimeFormatter.ofPattern("dd/MM HH:mm")
 
 @Composable
-fun HistoryScreen(entries: List<HistoryEntry>) {
+fun HistoryScreen() {
+    val ctx = LocalContext.current
+    // Collected here, not at the root: inserts only recompose this tab.
+    val entries by remember { HistoryStore.ensure(ctx); HistoryStore.events() }
+        .collectAsState(emptyList())
     var range by rememberSaveable { mutableIntStateOf(0) }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ranges.forEachIndexed { i, r -> GreenChip(r, i == range) { range = i } }

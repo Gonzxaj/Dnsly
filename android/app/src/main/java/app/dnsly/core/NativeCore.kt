@@ -18,7 +18,7 @@ object NativeCore {
     @JvmStatic
     external fun forwarderStart(tunFd: Int, server: String, port: Int, timeoutMs: Int, listener: ForwarderListener?): Long
 
-    /** Stops the forwarder and closes the TUN fd. Blocks up to ~200 ms. Call once per handle. */
+    /** Stops the forwarder and closes the TUN fd; wakes the poll loop via eventfd. Call once per handle. */
     @JvmStatic
     external fun forwarderStop(handle: Long)
 
